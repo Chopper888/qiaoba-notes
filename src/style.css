@@ -534,6 +534,67 @@ html, body, #app {
   border-radius: 4px;
 }
 
+/* ─── 未完成事项总览 ─── */
+.todo-overview {
+  padding: 3px 8px 4px;
+  border-bottom: 1px solid rgba(0,0,0,0.07);
+  background: #fffdf5;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.todo-section { margin: 1px 0; }
+.todo-section-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s;
+}
+.todo-section-header:hover { background: rgba(0,0,0,0.05); }
+.todo-section-title {
+  flex: 1;
+  font-weight: 600;
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.todo-badge {
+  background: #d97706;
+  color: #fff;
+  border-radius: 8px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 16px;
+  text-align: center;
+  line-height: 1.6;
+}
+.todo-chevron { color: #bbb; font-size: 8px; flex-shrink: 0; }
+.todo-items { padding: 1px 0 2px 14px; }
+.todo-item {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.todo-item:hover { background: rgba(0,0,0,0.05); }
+.todo-item-icon { font-size: 10px; flex-shrink: 0; }
+.todo-item-text { color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-empty { padding: 3px 4px; color: #aaa; font-size: 11px; }
+
+@keyframes todo-flash {
+  0%, 100% { background-color: transparent; }
+  30%, 70%  { background-color: #fef3c7; outline: 2px solid #d97706; }
+}
+.todo-jump-highlight { animation: todo-flash 1.2s ease; border-radius: 3px; }
+
 /* ─── Dev 标识 ─── */
 .dev-banner {
   position: fixed;

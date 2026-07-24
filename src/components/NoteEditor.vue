@@ -181,6 +181,58 @@ const insertLines    = ref([])   // N+1 条插入指示线（top + active 标志
 const sectionFade    = ref(null) // 拖动中源区域半透明遮罩 { top, height }
 const hoveredZoneIdx = ref(-1)   // 当前鼠标悬停的 H1 索引，用于显示手柄
 
+// ── 未完成事项总览 ────────────────────────────────────────────────────────────
+const todoSections     = ref([])        // [{ title, items: [{ type, text, node }] }]
+const hasH1InDoc       = ref(false)     // 当前文档是否含有 H1
+const expandedSections = ref(new Set()) // 已展开的 H1 标题集合
+
+function updateTodoOverview() {
+  if (!editor.value) { todoSections.value = []; hasH1InDoc.value = false; return }
+  const children = Array.from(editor.value.view.dom.childNodes).filter(n => n.nodeType === 1)
+
+  const all = []
+  let cur = null
+  for (const child of children) {
+    if (child.tagName === 'H1') {
+      if (cur) all.push(cur)
+      cur = { title: child.textContent.trim(), items: [] }
+    } else if (cur) {
+      child.querySelectorAll('span[data-status="ing"], span[data-status="todo"]')
+        .forEach(span => cur.items.push({
+          type: span.getAttribute('data-status'),
+          text: span.textContent,
+          node: span,
+        }))
+    }
+  }
+  if (cur) all.push(cur)
+
+  hasH1InDoc.value = all.length > 0
+  todoSections.value = all.filter(s => s.items.length > 0)
+}
+
+function toggleSection(title) {
+  const s = new Set(expandedSections.value)
+  s.has(title) ? s.delete(title) : s.add(title)
+  expandedSections.value = s
+}
+
+function jumpToItem(item) {
+  const node = item.node
+  if (!node) return
+  const editorContent = editorWrapRef.value?.querySelector('.editor-content')
+  if (editorContent) {
+    const nodeRect = node.getBoundingClientRect()
+    const contRect = editorContent.getBoundingClientRect()
+    editorContent.scrollTo({
+      top: editorContent.scrollTop + nodeRect.top - contRect.top - contRect.height / 2 + nodeRect.height / 2,
+      behavior: 'smooth',
+    })
+  }
+  node.classList.add('todo-jump-highlight')
+  setTimeout(() => node.classList.remove('todo-jump-highlight'), 1200)
+}
+
 // H1 hover 监听器：鼠标进入 H1 时显示对应手柄
 let h1HoverCleanups = []
 function bindH1HoverListeners() {
@@ -396,7 +448,7 @@ const editor = useEditor({
     currentPre = pre
     currentH1s = sections
     emit('change', md)
-    nextTick(updateDragZones)
+    nextTick(() => { updateDragZones(); updateTodoOverview() })
   },
   onSelectionUpdate({ editor }) {
     updateBubble(editor)
@@ -455,6 +507,7 @@ onMounted(async () => {
   editor.value.commands.setContent(html, false)
   await nextTick()
   updateDragZones()
+  updateTodoOverview()
   scrollEl = editorWrapRef.value?.querySelector('.editor-content')
   scrollEl?.addEventListener('scroll', updateDragZones)
 })
@@ -558,6 +611,31 @@ onBeforeUnmount(() => { scrollEl?.removeEventListener('scroll', updateDragZones)
       <button class="tool-btn" :class="{ active: editor?.isActive('link') }"
         @mousedown.prevent="insertLink" title="插入链接">🔗</button>
       <button class="tool-btn" @mousedown.prevent="insertImage" title="插入图片">🖼</button>
+    </div>
+
+    <!-- 未完成事项总览：仅在文档含 H1 时渲染 -->
+    <div v-if="hasH1InDoc" class="todo-overview">
+      <template v-if="todoSections.length > 0">
+        <div v-for="sec in todoSections" :key="sec.title" class="todo-section">
+          <div class="todo-section-header" @click="toggleSection(sec.title)">
+            <span class="todo-section-title">{{ sec.title }}</span>
+            <span class="todo-badge">{{ sec.items.length }}</span>
+            <span class="todo-chevron">{{ expandedSections.has(sec.title) ? '▲' : '▼' }}</span>
+          </div>
+          <div v-if="expandedSections.has(sec.title)" class="todo-items">
+            <div
+              v-for="(item, j) in sec.items"
+              :key="j"
+              class="todo-item"
+              @click="jumpToItem(item)"
+            >
+              <span class="todo-item-icon">{{ item.type === 'ing' ? '🟢' : '🟡' }}</span>
+              <span class="todo-item-text">{{ item.text }}</span>
+            </div>
+          </div>
+        </div>
+      </template>
+      <div v-else class="todo-empty">当前没有待处理事项 ✓</div>
     </div>
 
     <EditorContent :editor="editor" class="editor-content" @click="handleEditorClick" />
