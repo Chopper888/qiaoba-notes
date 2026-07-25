@@ -186,7 +186,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="list-view">
     <div class="list-header">
-      <span class="list-title">便签</span>
+      <span class="list-title">乔巴便笺</span>
       <button class="btn-new" @click="newNote">+ 新建</button>
     </div>
 
