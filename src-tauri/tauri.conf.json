@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "乔巴便笺",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "identifier": "com.chopper888.qiaoba-notes",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -36,5 +36,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNGMDNDODIyMDdEQjZDNUYKUldSZmJOc0hJc2dEUDZiWTJTTU5KSC9lNEF2c0Mydk5jMGhFc0dXK0dmaHkzYi9CQnNBSm54a0YK",
+      "endpoints": [
+        "https://github.com/Chopper888/qiaoba-notes/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

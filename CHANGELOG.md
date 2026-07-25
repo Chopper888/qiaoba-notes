@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [1.2.0] - 2026-07-25
+
+### 新功能
+
+**热更新（自动检测新版本并提示）**
+
+- 软件启动时自动在后台检测 GitHub Releases 是否有新版本，有则弹窗提示，无则静默不打扰
+- 弹窗显示新版本号及更新说明，提供"立即更新"和"稍后再说"两个选项；点击"稍后再说"后本次会话不再重复弹出
+- 点击"立即更新"后显示下载进度条，下载安装完成后自动重启应用
+- 使用 Tauri 官方 updater 插件 + minisign 签名机制，更新包经签名验证，防止篡改
+- 更新源对接 GitHub Releases（`latest.json` 作为元数据文件），无需额外服务器
+- 影响文件：`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`src-tauri/capabilities/default.json`、`src-tauri/src/lib.rs`、`src/components/UpdateDialog.vue`（新增）、`src/App.vue`
+
+> **发版注意**：每次发布新版本到 GitHub Releases 时，需同步上传 `latest.json`（含版本号、下载链接、.sig 签名内容）。打包时设置环境变量 `TAURI_SIGNING_PRIVATE_KEY_PATH=C:\Users\a\.tauri\qiaoba-notes.key`，签名文件会自动生成在 `target/release/bundle/nsis/` 目录下。
+
+---
+
 ## [1.1.0] - 2026-07-24
 
 ### 新功能
