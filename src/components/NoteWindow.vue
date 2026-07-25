@@ -110,7 +110,7 @@ onBeforeUnmount(() => {
       <!-- 标题区域：拖动 = 移动窗口；点 ✎ = 编辑标题 -->
       <div class="titlebar-title" @mousedown="!isTitleEditing && startDrag($event)">
         <template v-if="!isTitleEditing">
-          <span class="title-text">{{ noteTitle || '便签' }}</span>
+          <span class="title-text">{{ noteTitle || '无标题' }}</span>
           <button class="btn-title-edit" @mousedown.stop @click.stop="startEditTitle" title="编辑标题">✎</button>
         </template>
         <input
