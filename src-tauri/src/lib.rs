@@ -90,6 +90,20 @@ fn ensure_dir() {
     fs::create_dir_all(notes_dir()).ok();
 }
 
+fn strip_html(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
 fn parse_file(raw: &str) -> (NoteMeta, String) {
     if raw.starts_with("---\n") {
         if let Some(end_pos) = raw[4..].find("\n---\n") {
@@ -164,7 +178,7 @@ fn list_notes() -> Vec<NoteListItem> {
             let title = if title.is_empty() { "无标题".to_string() } else { title };
             let preview: String = body
                 .lines()
-                .map(|l| l.trim_start_matches(['#', '-', '*', ' ']))
+                .map(|l| strip_html(l.trim_start_matches(['#', '-', '*', ' '])))
                 .filter(|l| !l.is_empty())
                 .take(3)
                 .collect::<Vec<_>>()
