@@ -55,9 +55,13 @@ npm run tauri build
 
 ---
 
-## 截图
+## 使用教程
 
-（截图待补充）
+详细教程可以去看下面的链接：
+
+https://mp.weixin.qq.com/s/wcbZ-y_A-umkEC_isylVsQ
+
+（完整版使用文档也可以查看仓库内的 [docs/USAGE.md](./docs/USAGE.md)）
 
 ---
 
