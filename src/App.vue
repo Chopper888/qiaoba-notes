@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, markRaw, onMounted } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { check } from '@tauri-apps/plugin-updater'
 import ListView from './components/ListView.vue'
@@ -18,7 +18,7 @@ onMounted(async () => {
     try {
       const update = await check()
       if (update?.available) {
-        pendingUpdate.value = update
+        pendingUpdate.value = markRaw(update)
       }
     } catch (e) {
       console.warn('[updater] check failed:', e)
