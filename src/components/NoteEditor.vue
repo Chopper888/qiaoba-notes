@@ -13,6 +13,7 @@ import { marked } from 'marked'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { ContinuousOrderedList } from '../editor/continuousOrderedList.js'
 import { TabIndentList } from '../editor/tabIndentList.js'
+import { fixOrderedListStructure } from '../editor/fixOrderedListStructure.js'
 
 const props = defineProps({ initialContent: String })
 const emit = defineEmits(['change'])
@@ -351,18 +352,84 @@ function updateBubble(ed) {
   bubbleVisible.value = true
 }
 
-// ── 图片插入（工具栏/拖拽/粘贴共用） ─────────────────────────────────────────
-function readImageAsDataURL(file, cb) {
-  if (!file || !file.type.startsWith('image/')) return
-  const reader = new FileReader()
-  reader.onload = evt => cb(evt.target.result)
-  reader.readAsDataURL(file)
+// ── 图片插入（工具栏/拖拽/粘贴共用，插入前自动压缩） ─────────────────────────
+const MAX_IMAGE_EDGE = 1920        // 最大边长阈值（px），超过则等比缩放
+const MAX_IMAGE_BYTES = 500 * 1024 // 压缩目标文件大小（500KB）
+
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
 }
 
-function insertImageFile(file) {
-  readImageAsDataURL(file, src => {
-    editor.value?.chain().focus().setImage({ src }).run()
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
   })
+}
+
+function canvasToBlob(canvas, mime, quality) {
+  return new Promise(resolve => canvas.toBlob(resolve, mime, quality))
+}
+
+// 用 Canvas 把图片压缩成 base64 data URL；已经够小的图片直接返回原图，避免质量损失
+async function compressImageFile(file) {
+  if (!file || !file.type.startsWith('image/')) return null
+  try {
+    const bitmap = await createImageBitmap(file)
+    const width = bitmap.width
+    const height = bitmap.height
+    const maxEdge = Math.max(width, height)
+
+    // 尺寸与体积都未超阈值：直接插入原图
+    if (maxEdge <= MAX_IMAGE_EDGE && file.size <= MAX_IMAGE_BYTES) {
+      bitmap.close()
+      return await fileToDataURL(file)
+    }
+
+    const scale = Math.min(1, MAX_IMAGE_EDGE / maxEdge)
+    const w = Math.max(1, Math.round(width * scale))
+    const h = Math.max(1, Math.round(height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      bitmap.close()
+      return await fileToDataURL(file)
+    }
+    ctx.drawImage(bitmap, 0, 0, w, h)
+    bitmap.close()
+
+    // 保留透明通道：png/gif/webp 用 webp，jpeg 等照片用 jpeg
+    const mime = (file.type === 'image/png' || file.type === 'image/gif' || file.type === 'image/webp')
+      ? 'image/webp'
+      : 'image/jpeg'
+
+    let blob = null
+    for (const q of [0.9, 0.8, 0.7, 0.6, 0.5]) {
+      const candidate = await canvasToBlob(canvas, mime, q)
+      if (!candidate) continue
+      blob = candidate
+      if (candidate.size <= MAX_IMAGE_BYTES) break
+    }
+    if (!blob) return await fileToDataURL(file)
+    return await blobToDataURL(blob)
+  } catch (e) {
+    console.warn('[image] 压缩失败，回退原图', e)
+    return await fileToDataURL(file)
+  }
+}
+
+async function insertImageFile(file) {
+  const src = await compressImageFile(file)
+  if (src) editor.value?.chain().focus().setImage({ src }).run()
 }
 
 function handleDrop(view, event) {
@@ -372,14 +439,14 @@ function handleDrop(view, event) {
   if (images.length === 0) return false
   event.preventDefault()
   const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos
-  images.forEach(file => {
-    readImageAsDataURL(file, src => {
-      if (pos != null) {
-        editor.value?.chain().insertContentAt(pos, { type: 'image', attrs: { src } }).run()
-      } else {
-        editor.value?.chain().focus().setImage({ src }).run()
-      }
-    })
+  images.forEach(async file => {
+    const src = await compressImageFile(file)
+    if (!src) return
+    if (pos != null) {
+      editor.value?.chain().insertContentAt(pos, { type: 'image', attrs: { src } }).run()
+    } else {
+      editor.value?.chain().focus().setImage({ src }).run()
+    }
   })
   return true
 }
@@ -437,39 +504,6 @@ const editor = useEditor({
     updateBubble(editor)
   },
 })
-
-function fixOrderedListStructure(html) {
-  const div = document.createElement('div')
-  div.innerHTML = html
-
-  // 把紧跟在 <ol> 后面的顶层 <ul> 移进该 <ol> 最后一个 <li>，使其成为嵌套子列表
-  let changed = true
-  while (changed) {
-    changed = false
-    const children = Array.from(div.children)
-    for (let i = 1; i < children.length; i++) {
-      if (children[i - 1].tagName === 'OL' && children[i].tagName === 'UL') {
-        const lastLi = children[i - 1].lastElementChild
-        if (lastLi) { lastLi.appendChild(children[i]); changed = true; break }
-      }
-    }
-  }
-
-  // 合并相邻 <ol>，使编号连续
-  changed = true
-  while (changed) {
-    changed = false
-    const children = Array.from(div.children)
-    for (let i = 1; i < children.length; i++) {
-      if (children[i - 1].tagName === 'OL' && children[i].tagName === 'OL') {
-        while (children[i].firstChild) children[i - 1].appendChild(children[i].firstChild)
-        children[i].remove(); changed = true; break
-      }
-    }
-  }
-
-  return div.innerHTML
-}
 
 onMounted(async () => {
   await nextTick()

@@ -127,13 +127,31 @@ fn ensure_dir() {
 
 fn strip_html(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
-    let mut in_tag = false;
-    for c in s.chars() {
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
         match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => out.push(c),
-            _ => {}
+            // 仅当 '<' 后紧跟字母、'/' 或 '!' 时视为标签开头；否则是字面量（如 "a < b"、"<3"）
+            '<' => {
+                let looks_like_tag = match chars.peek() {
+                    Some(&'/') | Some(&'!') => true,
+                    Some(&ch) => ch.is_ascii_alphabetic(),
+                    None => false,
+                };
+                if looks_like_tag {
+                    // 吞掉直到下一个 '>'（含）；未闭合的标签吞到结尾
+                    for c2 in chars.by_ref() {
+                        if c2 == '>' {
+                            break;
+                        }
+                    }
+                } else {
+                    out.push('<');
+                }
+            }
+            // '>' 只可能作为标签结束符出现，标签内容已在上面循环内消费；
+            // 走到这里说明 '>' 是字面量（如 "a > b"），原样保留
+            '>' => out.push('>'),
+            _ => out.push(c),
         }
     }
     out
@@ -512,5 +530,38 @@ mod tests {
     #[test]
     fn strip_html_passthrough_plain_text() {
         assert_eq!(strip_html("普通文本，无标签"), "普通文本，无标签");
+    }
+
+    #[test]
+    fn strip_html_empty_input() {
+        assert_eq!(strip_html(""), "");
+    }
+
+    #[test]
+    fn strip_html_keeps_literal_angle_brackets() {
+        assert_eq!(strip_html("a < b"), "a < b");
+        assert_eq!(strip_html("a > b"), "a > b");
+        assert_eq!(strip_html("1 < 2 > 1"), "1 < 2 > 1");
+    }
+
+    #[test]
+    fn strip_html_keeps_heart_emoji() {
+        assert_eq!(strip_html("我 <3 你"), "我 <3 你");
+    }
+
+    #[test]
+    fn strip_html_keeps_trailing_open_bracket() {
+        assert_eq!(strip_html("abc<"), "abc<");
+    }
+
+    #[test]
+    fn strip_html_removes_nested_tags() {
+        assert_eq!(strip_html("<p><b>加粗</b>正文</p>"), "加粗正文");
+    }
+
+    #[test]
+    fn strip_html_unclosed_tag_swallows_rest() {
+        // 未闭合标签：从 '<' 起无 '>'，剩余内容被吞（与旧实现语义一致，防御性测试锁定）
+        assert_eq!(strip_html("<span 未闭合"), "");
     }
 }
