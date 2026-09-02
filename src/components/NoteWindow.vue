@@ -7,24 +7,31 @@ import NoteEditor from './NoteEditor.vue'
 const appWindow = getCurrentWindow()
 const props = defineProps({ noteId: String })
 
-const isPinned = ref(false)
+const isFloating = ref(false)
 const initialContent = ref('')
 const isLoaded = ref(false)
 const noteTitle = ref('')
 const isTitleEditing = ref(false)
 const titleInputRef = ref(null)
 let titleBeforeEdit = ''
+const loadError = ref('')
+const actionError = ref('')
 
 let saveTimer = null
 let latestMd = ''
 
 async function loadNote() {
-  const data = await invoke('read_note', { id: props.noteId })
-  initialContent.value = data.content
-  isPinned.value = data.meta.pinned
-  noteTitle.value = data.meta.title
-  latestMd = data.content
-  isLoaded.value = true
+  try {
+    const data = await invoke('read_note', { id: props.noteId })
+    initialContent.value = data.content
+    isFloating.value = data.meta.floating
+    noteTitle.value = data.meta.title
+    latestMd = data.content
+    isLoaded.value = true
+  } catch (e) {
+    console.error('load note error', e)
+    loadError.value = '该便签读取失败'
+  }
 }
 
 async function saveNote() {
@@ -39,7 +46,7 @@ async function saveNote() {
       y: pos.y,
       width: pos.width,
       height: pos.height,
-      pinned: isPinned.value,
+      floating: isFloating.value,
     })
   } catch (e) {
     console.error('save error', e)
@@ -52,15 +59,24 @@ function onContentChange(md) {
   saveTimer = setTimeout(saveNote, 500)
 }
 
-async function togglePin() {
-  isPinned.value = !isPinned.value
-  await invoke('set_always_on_top', { value: isPinned.value })
+async function toggleFloating() {
+  isFloating.value = !isFloating.value
+  await invoke('set_always_on_top', { value: isFloating.value })
   saveNote()
 }
 
 async function newNote() {
-  const id = await invoke('create_note')
-  await invoke('open_note_window', { id })
+  try {
+    const id = await invoke('create_note')
+    await invoke('open_note_window', { id })
+  } catch (e) {
+    console.error('create note error', e)
+    actionError.value = '新建便签失败'
+  }
+}
+
+function minimize() {
+  appWindow.minimize()
 }
 
 async function startDrag(e) {
@@ -129,19 +145,39 @@ onBeforeUnmount(() => {
       <div class="titlebar-actions">
         <button
           class="btn-icon pin-btn"
-          :class="{ pinned: isPinned }"
-          @click="togglePin"
-          :title="isPinned ? '取消置顶' : '置顶'"
+          :class="{ floating: isFloating }"
+          @click="toggleFloating"
+          :title="isFloating ? '取消置顶' : '置顶'"
         >📌</button>
         <button class="btn-icon" @click="newNote" title="新建便签">＋</button>
+        <button class="btn-icon" @click="minimize" title="最小化">—</button>
         <button class="btn-icon btn-close" @click="closeWindow" title="关闭">✕</button>
       </div>
     </div>
 
+    <div v-if="actionError" class="note-action-error">{{ actionError }}</div>
+
+    <div v-if="loadError" class="note-error">{{ loadError }}</div>
     <NoteEditor
-      v-if="isLoaded"
+      v-else-if="isLoaded"
       :initial-content="initialContent"
       @change="onContentChange"
     />
   </div>
 </template>
+
+<style scoped>
+.note-action-error {
+  padding: 8px 14px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  font-size: 13px;
+}
+.note-error {
+  padding: 24px;
+  text-align: center;
+  color: #b91c1c;
+  font-size: 14px;
+}
+</style>

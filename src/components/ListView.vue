@@ -5,6 +5,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 
 const notes = ref([])
 const searchQuery = ref('')
+const listError = ref('')
+const deleteTargetId = ref(null)
 let unlistenFocus = null
 
 const ctxMenu = ref({ visible: false, x: 0, y: 0, note: null })
@@ -27,13 +29,24 @@ const pinnedNotes = computed(() => filteredNotes.value.filter(n => n.pinned))
 const unpinnedNotes = computed(() => filteredNotes.value.filter(n => !n.pinned))
 
 async function loadNotes() {
-  notes.value = await invoke('list_notes')
+  try {
+    notes.value = await invoke('list_notes')
+    listError.value = ''
+  } catch (e) {
+    console.error('load notes error', e)
+    listError.value = '便签列表读取失败'
+  }
 }
 
 async function newNote() {
-  const id = await invoke('create_note')
-  await invoke('open_note_window', { id })
-  setTimeout(loadNotes, 600)
+  try {
+    const id = await invoke('create_note')
+    await invoke('open_note_window', { id })
+    setTimeout(loadNotes, 600)
+  } catch (e) {
+    console.error('create note error', e)
+    listError.value = '新建便签失败'
+  }
 }
 
 async function openNote(id) {
@@ -42,7 +55,17 @@ async function openNote(id) {
 
 async function deleteNote(id, e) {
   e.stopPropagation()
-  if (!confirm('确定删除这条便签？')) return
+  deleteTargetId.value = id
+}
+
+function cancelDelete() {
+  deleteTargetId.value = null
+}
+
+async function confirmDelete() {
+  const id = deleteTargetId.value
+  deleteTargetId.value = null
+  if (!id) return
   await invoke('delete_note', { id })
   await loadNotes()
 }
@@ -200,6 +223,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="notes-list">
+      <div v-if="listError" class="list-error">{{ listError }}</div>
       <!-- 置顶区域（支持拖拽排序） -->
       <div v-if="pinnedNotes.length > 0" class="pinned-section" ref="pinnedSectionEl">
         <div
@@ -258,10 +282,31 @@ onBeforeUnmount(() => {
         {{ ctxMenu.note?.pinned ? '取消置顶' : '📌 置顶' }}
       </button>
     </div>
+
+    <!-- 删除确认弹窗 -->
+    <div v-if="deleteTargetId" class="modal-mask" @click.self="cancelDelete">
+      <div class="modal-card">
+        <div class="modal-text">确定删除这条便签？</div>
+        <div class="modal-actions">
+          <button class="modal-btn cancel" @click="cancelDelete">取消</button>
+          <button class="modal-btn danger" @click="confirmDelete">删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.list-error {
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
 .pinned-section {
   position: relative;
 }
@@ -291,4 +336,52 @@ onBeforeUnmount(() => {
   z-index: 20;
   transform: translateY(-50%);
 }
+
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+.modal-card {
+  width: 260px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+  padding: 20px 18px 16px;
+}
+.modal-text {
+  font-size: 14px;
+  color: #2c2c2c;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.modal-btn {
+  flex: 1;
+  padding: 7px 0;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.modal-btn.cancel {
+  background: #f5f5f5;
+  color: #555;
+  border-color: #ddd;
+}
+.modal-btn.cancel:hover { background: #ececec; }
+.modal-btn.danger {
+  background: #e53e3e;
+  color: #fff;
+}
+.modal-btn.danger:hover { background: #c53030; }
 </style>

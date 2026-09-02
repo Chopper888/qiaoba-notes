@@ -289,8 +289,8 @@ html, body, #app {
   transition: background 0.12s;
 }
 .btn-icon:hover { background: rgba(0,0,0,0.1); }
-.btn-icon.pinned { filter: none; opacity: 1; }
-.btn-icon:not(.pinned).pin-btn { filter: grayscale(1); opacity: 0.5; }
+.btn-icon.floating { filter: none; opacity: 1; }
+.btn-icon:not(.floating).pin-btn { filter: grayscale(1); opacity: 0.5; }
 .btn-icon.btn-close:hover { background: #e53e3e; color: #fff; }
 
 /* ─── 编辑器 ─── */

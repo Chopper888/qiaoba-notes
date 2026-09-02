@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use chrono::Local;
+
+static NOTE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct NoteMeta {
@@ -14,7 +17,7 @@ struct NoteMeta {
     y: f64,
     width: f64,
     height: f64,
-    pinned: bool,
+    floating: bool,
 }
 
 impl Default for NoteMeta {
@@ -27,7 +30,7 @@ impl Default for NoteMeta {
             y: 200.0,
             width: 320.0,
             height: 420.0,
-            pinned: false,
+            floating: false,
         }
     }
 }
@@ -105,46 +108,74 @@ fn strip_html(s: &str) -> String {
 }
 
 fn parse_file(raw: &str) -> (NoteMeta, String) {
-    if raw.starts_with("---\n") {
-        if let Some(end_pos) = raw[4..].find("\n---\n") {
-            let fm = &raw[4..4 + end_pos];
-            let body = &raw[4 + end_pos + 5..];
-            let mut meta = NoteMeta::default();
-            for line in fm.lines() {
-                if let Some((k, v)) = line.split_once(": ") {
-                    match k.trim() {
-                        "title" => meta.title = v.trim().to_string(),
-                        "created" => meta.created = v.trim().to_string(),
-                        "modified" => meta.modified = v.trim().to_string(),
-                        "x" => meta.x = v.trim().parse().unwrap_or(200.0),
-                        "y" => meta.y = v.trim().parse().unwrap_or(200.0),
-                        "width" => meta.width = v.trim().parse().unwrap_or(320.0),
-                        "height" => meta.height = v.trim().parse().unwrap_or(420.0),
-                        "pinned" => meta.pinned = v.trim() == "true",
-                        _ => {}
-                    }
-                }
+    // 起始分隔线兼容 \r\n 与 \n
+    let Some(content) = raw
+        .strip_prefix("---\r\n")
+        .or_else(|| raw.strip_prefix("---\n"))
+    else {
+        return (NoteMeta::default(), raw.to_string());
+    };
+
+    // 逐行定位结束分隔线（单独一行的 ---），兼容 \r\n 与 \n
+    let mut offset = 0usize;
+    let mut fm_len: Option<usize> = None;
+    let mut body_start: Option<usize> = None;
+    for line in content.split_inclusive('\n') {
+        let core = line.strip_suffix('\n').unwrap_or(line);
+        let core = core.strip_suffix('\r').unwrap_or(core);
+        if core == "---" {
+            fm_len = Some(offset);
+            body_start = Some(offset + line.len());
+            break;
+        }
+        offset += line.len();
+    }
+
+    let (Some(fm_len), Some(body_start)) = (fm_len, body_start) else {
+        return (NoteMeta::default(), raw.to_string());
+    };
+
+    let fm = &content[..fm_len];
+    let body = &content[body_start..];
+    let mut meta = NoteMeta::default();
+    for line in fm.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        // 只在第一个冒号处切分，值中允许出现冒号
+        if let Some((k, v)) = line.split_once(':') {
+            let key = k.trim();
+            let val = v.trim();
+            match key {
+                "title" => meta.title = val.to_string(),
+                "created" => meta.created = val.to_string(),
+                "modified" => meta.modified = val.to_string(),
+                "x" => meta.x = val.parse().unwrap_or(200.0),
+                "y" => meta.y = val.parse().unwrap_or(200.0),
+                "width" => meta.width = val.parse().unwrap_or(320.0),
+                "height" => meta.height = val.parse().unwrap_or(420.0),
+                "floating" => meta.floating = val == "true",
+                // 向后兼容：旧版本用 pinned 表示"便签窗口悬浮置顶"
+                "pinned" => meta.floating = val == "true",
+                _ => {}
             }
-            if meta.width < 200.0 { meta.width = 320.0; }
-            if meta.height < 150.0 { meta.height = 420.0; }
-            return (meta, body.to_string());
         }
     }
-    (NoteMeta::default(), raw.to_string())
+    if meta.width < 200.0 { meta.width = 320.0; }
+    if meta.height < 150.0 { meta.height = 420.0; }
+    (meta, body.to_string())
 }
 
 fn write_file(id: &str, meta: &NoteMeta, body: &str) -> Result<(), String> {
     ensure_dir();
     let content = format!(
-        "---\ntitle: {}\ncreated: {}\nmodified: {}\nx: {}\ny: {}\nwidth: {}\nheight: {}\npinned: {}\n---\n{}",
+        "---\ntitle: {}\ncreated: {}\nmodified: {}\nx: {}\ny: {}\nwidth: {}\nheight: {}\nfloating: {}\n---\n{}",
         meta.title,
         meta.created,
         meta.modified,
-        meta.x as i64,
-        meta.y as i64,
-        meta.width as i64,
-        meta.height as i64,
-        meta.pinned,
+        meta.x,
+        meta.y,
+        meta.width,
+        meta.height,
+        meta.floating,
         body
     );
     fs::write(note_path(id), content).map_err(|e| e.to_string())
@@ -262,7 +293,7 @@ fn save_note(
     y: f64,
     width: f64,
     height: f64,
-    pinned: bool,
+    floating: bool,
 ) -> Result<(), String> {
     let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let title = if !title.is_empty() {
@@ -281,23 +312,39 @@ fn save_note(
         .map(|raw| parse_file(&raw).0.created)
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| now.clone());
-    let meta = NoteMeta { title, created, modified: now, x, y, width, height, pinned };
+    let meta = NoteMeta { title, created, modified: now, x, y, width, height, floating };
     write_file(&id, &meta, &content)
 }
 
 #[tauri::command]
-fn create_note() -> String {
-    let id = Local::now().format("%Y%m%d_%H%M%S_%3f").to_string();
-    let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let meta = NoteMeta { created: now.clone(), modified: now, ..NoteMeta::default() };
+fn create_note() -> Result<String, String> {
+    let now = Local::now();
+    let secs = now.format("%Y%m%d_%H%M%S").to_string();
+    let nanos = now.timestamp_subsec_nanos();
+    let seq = NOTE_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let id = format!("{}_{:09}_{}", secs, nanos, seq);
+    let now_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
+    let meta = NoteMeta { created: now_str.clone(), modified: now_str, ..NoteMeta::default() };
     ensure_dir();
-    write_file(&id, &meta, "").ok();
-    id
+    write_file(&id, &meta, "")?;
+    Ok(id)
 }
 
 #[tauri::command]
 fn delete_note(id: String) -> Result<(), String> {
-    fs::remove_file(note_path(&id)).map_err(|e| e.to_string())
+    fs::remove_file(note_path(&id)).map_err(|e| e.to_string())?;
+    // 同步清理置顶记录，避免孤儿数据累积
+    let mut pins = load_pins();
+    if pins.remove(&id).is_some() {
+        save_pins(&pins);
+    }
+    let mut order = load_pin_order();
+    let before = order.len();
+    order.retain(|x| x != &id);
+    if order.len() != before {
+        save_pin_order(&order);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -319,7 +366,7 @@ async fn open_note_window(app: AppHandle, id: String) -> Result<(), String> {
         .position(meta.x, meta.y)
         .decorations(false)
         .shadow(true)
-        .always_on_top(meta.pinned)
+        .always_on_top(meta.floating)
         .resizable(true)
         .min_inner_size(200.0, 150.0)
         .build()
@@ -371,4 +418,51 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_file_reads_new_floating_field() {
+        let raw = "---\ntitle: 测试\ncreated: 2026-01-01 00:00:00\nmodified: 2026-01-01 00:00:00\nx: 100\ny: 200\nwidth: 320\nheight: 420\nfloating: true\n---\n正文内容";
+        let (meta, body) = parse_file(raw);
+        assert!(meta.floating, "floating 字段应被读为 true");
+        assert_eq!(meta.title, "测试");
+        assert_eq!(meta.x, 100.0);
+        assert_eq!(meta.y, 200.0);
+        assert_eq!(body, "正文内容");
+    }
+
+    #[test]
+    fn parse_file_falls_back_to_old_pinned_field() {
+        let raw = "---\ntitle: 旧便签\npinned: true\n---\n正文";
+        let (meta, body) = parse_file(raw);
+        assert!(meta.floating, "旧 pinned 字段应被兼容读为 floating=true");
+        assert_eq!(meta.title, "旧便签");
+        assert_eq!(body, "正文");
+    }
+
+    #[test]
+    fn parse_file_no_frontmatter_uses_defaults() {
+        let raw = "没有任何 frontmatter 的正文";
+        let (meta, body) = parse_file(raw);
+        assert!(!meta.floating);
+        assert_eq!(meta.title, "");
+        assert_eq!(body, raw);
+    }
+
+    #[test]
+    fn strip_html_removes_tags() {
+        assert_eq!(
+            strip_html("<span data-status=\"todo\">待处理事项</span>"),
+            "待处理事项"
+        );
+    }
+
+    #[test]
+    fn strip_html_passthrough_plain_text() {
+        assert_eq!(strip_html("普通文本，无标签"), "普通文本，无标签");
+    }
 }

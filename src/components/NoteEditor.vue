@@ -7,10 +7,11 @@ import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Mark, mergeAttributes, Extension } from '@tiptap/core'
-import { Plugin, TextSelection, AllSelection } from '@tiptap/pm/state'
+import { TextSelection, AllSelection } from '@tiptap/pm/state'
 import TurndownService from 'turndown'
 import { marked } from 'marked'
 import { openUrl } from '@tauri-apps/plugin-opener'
+import { ContinuousOrderedList } from '../editor/continuousOrderedList.js'
 
 const props = defineProps({ initialContent: String })
 const emit = defineEmits(['change'])
@@ -73,73 +74,6 @@ const ProgressiveSelectAll = Extension.create({
         return true
       },
     }
-  },
-})
-
-// ── 有序列表全量重算编号 ──────────────────────────────────────────────────────
-// 规则（对齐飞书行为）：
-//   - 同层级的 <ol> 编号全程延续，中间夹着 <ul>/<p>/图片等不重置计数
-//   - 只有 heading（H1/H2/H3）才重置同层级计数器
-//   - 文档任何结构变化后（增删改/撤销/粘贴）立即全量重推，不做局部修补
-//   - 递归处理嵌套层级：每个 <li> 内部独立维护自己的计数上下文
-const ContinuousOrderedList = Extension.create({
-  name: 'continuousOrderedList',
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        appendTransaction(transactions, _oldState, newState) {
-          if (!transactions.some(tr => tr.docChanged)) return null
-          const { schema, doc } = newState
-          const olType = schema.nodes.orderedList
-          const blType = schema.nodes.bulletList
-          const hType  = schema.nodes.heading
-          if (!olType) return null
-
-          const tr = newState.tr
-          let changed = false
-
-          // contentStart：parent 节点内容区域的绝对起始位置
-          // （doc 无开始 token 所以传 0；其他节点传 nodePos+1）
-          function processLevel(parent, contentStart) {
-            let prevOlEnd = -1  // -1 = 当前层级尚未出现有序列表
-
-            parent.forEach((node, offset) => {
-              const nodePos = contentStart + offset
-
-              if (node.type === olType) {
-                // 全量推导：前面有 ol 则延续，否则从 1 开始
-                const thisStart = prevOlEnd >= 0 ? prevOlEnd + 1 : 1
-                if ((node.attrs.start || 1) !== thisStart) {
-                  tr.setNodeMarkup(nodePos, null, { ...node.attrs, start: thisStart })
-                  changed = true
-                }
-                // 用 thisStart（期望值）而非旧属性值更新 prevOlEnd，避免累积误差
-                prevOlEnd = thisStart + node.childCount - 1
-                // 递归处理每个 <li> 内部的嵌套有序列表
-                node.forEach((li, liOffset) => {
-                  processLevel(li, nodePos + 1 + liOffset + 1)
-                })
-
-              } else if (hType && node.type === hType) {
-                prevOlEnd = -1  // 标题隔断：新 section 的编号从 1 重新开始
-
-              } else if (blType && node.type === blType) {
-                // 无序列表：不重置 prevOlEnd（飞书规则：跳过不参与计数）
-                // 但要递归进去，处理 <li> 内可能存在的嵌套有序列表
-                node.forEach((li, liOffset) => {
-                  processLevel(li, nodePos + 1 + liOffset + 1)
-                })
-
-              }
-              // 段落、图片等其他节点：同样不重置 prevOlEnd，直接跳过
-            })
-          }
-
-          processLevel(doc, 0)
-          return changed ? tr : null
-        },
-      }),
-    ]
   },
 })
 
@@ -428,6 +362,55 @@ function updateBubble(ed) {
   bubbleVisible.value = true
 }
 
+// ── 图片插入（工具栏/拖拽/粘贴共用） ─────────────────────────────────────────
+function readImageAsDataURL(file, cb) {
+  if (!file || !file.type.startsWith('image/')) return
+  const reader = new FileReader()
+  reader.onload = evt => cb(evt.target.result)
+  reader.readAsDataURL(file)
+}
+
+function insertImageFile(file) {
+  readImageAsDataURL(file, src => {
+    editor.value?.chain().focus().setImage({ src }).run()
+  })
+}
+
+function handleDrop(view, event) {
+  const files = event.dataTransfer?.files
+  if (!files || files.length === 0) return false
+  const images = Array.from(files).filter(f => f.type.startsWith('image/'))
+  if (images.length === 0) return false
+  event.preventDefault()
+  const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos
+  images.forEach(file => {
+    readImageAsDataURL(file, src => {
+      if (pos != null) {
+        editor.value?.chain().insertContentAt(pos, { type: 'image', attrs: { src } }).run()
+      } else {
+        editor.value?.chain().focus().setImage({ src }).run()
+      }
+    })
+  })
+  return true
+}
+
+function handlePaste(view, event) {
+  const items = event.clipboardData?.items
+  if (!items) return false
+  const files = []
+  for (const item of items) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) files.push(file)
+    }
+  }
+  if (files.length === 0) return false
+  event.preventDefault()
+  files.forEach(file => insertImageFile(file))
+  return true
+}
+
 // ── 编辑器 ───────────────────────────────────────────────────────────────────
 const editor = useEditor({
   extensions: [
@@ -442,6 +425,10 @@ const editor = useEditor({
     ProgressiveSelectAll,
   ],
   content: '',
+  editorProps: {
+    handleDrop,
+    handlePaste,
+  },
   onUpdate({ editor }) {
     const md = td.turndown(editor.getHTML())
     const { pre, sections } = extractSections(md)
@@ -550,13 +537,7 @@ function insertLink() {
 function insertImage() {
   const input = document.createElement('input')
   input.type = 'file'; input.accept = 'image/*'
-  input.onchange = e => {
-    const file = e.target.files[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = evt => editor.value?.chain().focus().setImage({ src: evt.target.result }).run()
-    reader.readAsDataURL(file)
-  }
+  input.onchange = e => insertImageFile(e.target.files[0])
   input.click()
 }
 
