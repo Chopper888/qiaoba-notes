@@ -19,6 +19,7 @@ const actionError = ref('')
 
 let saveTimer = null
 let latestMd = ''
+let unlistenClose = null
 
 async function loadNote() {
   try {
@@ -110,10 +111,18 @@ async function closeWindow() {
   await invoke('close_window')
 }
 
-onMounted(loadNote)
+onMounted(async () => {
+  await loadNote()
+  // 任何关闭路径（含整体退出时窗口被关闭）都先强制落盘，再放行关闭
+  unlistenClose = await appWindow.onCloseRequested(async () => {
+    clearTimeout(saveTimer)
+    await saveNote()
+  })
+})
 
 onBeforeUnmount(() => {
   clearTimeout(saveTimer)
+  unlistenClose?.()
 })
 </script>
 

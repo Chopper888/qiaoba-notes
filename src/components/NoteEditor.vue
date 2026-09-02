@@ -111,13 +111,15 @@ function updateTodoOverview() {
   if (!editor.value) { todoSections.value = []; hasH1InDoc.value = false; return }
   const children = Array.from(editor.value.view.dom.childNodes).filter(n => n.nodeType === 1)
 
+  const hasH1 = children.some(c => c.tagName === 'H1')
   const all = []
-  let cur = null
+  // 第一个标题之前的内容归入隐式分组"未分组"
+  let cur = { title: '未分组', items: [] }
   for (const child of children) {
     if (child.tagName === 'H1') {
-      if (cur) all.push(cur)
+      all.push(cur)
       cur = { title: child.textContent.trim(), items: [] }
-    } else if (cur) {
+    } else {
       child.querySelectorAll('span[data-status="ing"], span[data-status="todo"]')
         .forEach(span => cur.items.push({
           type: span.getAttribute('data-status'),
@@ -126,9 +128,9 @@ function updateTodoOverview() {
         }))
     }
   }
-  if (cur) all.push(cur)
+  all.push(cur)
 
-  hasH1InDoc.value = all.length > 0
+  hasH1InDoc.value = hasH1
   todoSections.value = all.filter(s => s.items.length > 0)
 }
 

@@ -139,6 +139,23 @@ html, body, #app {
   margin-top: 4px;
 }
 
+/* 读取失败占位卡片：置灰，不可打开 */
+.note-card-error {
+  opacity: 0.62;
+  cursor: default;
+  background: #fafafa;
+}
+.note-card-error:hover {
+  box-shadow: none;
+  border-color: #eee;
+}
+.note-card-error .note-card-title {
+  color: #b91c1c;
+}
+.note-card-error .note-card-preview {
+  color: #aaa;
+}
+
 /* 置顶卡片：左侧淡橙色边线 */
 .note-card-pinned {
   border-left: 3px solid #f5a623;

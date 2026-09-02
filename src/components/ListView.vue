@@ -42,7 +42,8 @@ async function newNote() {
   try {
     const id = await invoke('create_note')
     await invoke('open_note_window', { id })
-    setTimeout(loadNotes, 600)
+    // create_note 已同步写盘，这里直接等待 list_notes 返回即可，无需固定延时猜测
+    await loadNotes()
   } catch (e) {
     console.error('create note error', e)
     listError.value = '新建便签失败'
@@ -255,15 +256,16 @@ onBeforeUnmount(() => {
         v-for="note in unpinnedNotes"
         :key="note.id"
         class="note-card"
-        @click="openNote(note.id)"
+        :class="{ 'note-card-error': note.error }"
+        @click="!note.error && openNote(note.id)"
         @contextmenu.prevent="showCtxMenu($event, note)"
       >
         <div class="note-card-top">
-          <span class="note-card-title">{{ note.title || '无标题' }}</span>
+          <span class="note-card-title">{{ note.error ? '⚠ 读取失败' : (note.title || '无标题') }}</span>
           <button class="btn-card-del" @click="deleteNote(note.id, $event)" title="删除">✕</button>
         </div>
-        <div class="note-card-preview">{{ note.preview }}</div>
-        <div class="note-card-date">{{ formatDate(note.modified) }}</div>
+        <div class="note-card-preview">{{ note.error ? (note.id + ' · 文件损坏或编码异常') : note.preview }}</div>
+        <div class="note-card-date">{{ note.error ? '' : formatDate(note.modified) }}</div>
       </div>
 
       <div v-if="filteredNotes.length === 0" class="empty-tip">

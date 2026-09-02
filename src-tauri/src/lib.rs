@@ -43,6 +43,7 @@ struct NoteListItem {
     preview: String,
     pinned: bool,
     pin_time: String,
+    error: bool,
 }
 
 fn notes_dir() -> PathBuf {
@@ -82,6 +83,37 @@ fn load_pin_order() -> Vec<String> {
 fn save_pin_order(order: &[String]) {
     if let Ok(json) = serde_json::to_string_pretty(order) {
         fs::write(pin_order_path(), json).ok();
+    }
+}
+
+// 以 _pins.json 为准则，纠正 _pin_order.json 的不一致：
+// - order 中多余的 id（不在 pins 里）剔除
+// - pins 里有但 order 缺失的 id 追加到末尾（按置顶时间倒序）
+fn reconcile_pins() {
+    let pins = load_pins();
+    let order = load_pin_order();
+    let mut cleaned: Vec<String> = order
+        .iter()
+        .filter(|id| pins.contains_key(*id))
+        .cloned()
+        .collect();
+    let mut changed = cleaned.len() != order.len();
+    let mut missing: Vec<String> = pins
+        .keys()
+        .filter(|id| !cleaned.iter().any(|o| o == *id))
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        missing.sort_by(|a, b| {
+            let ta = pins.get(a).cloned().unwrap_or_default();
+            let tb = pins.get(b).cloned().unwrap_or_default();
+            tb.cmp(&ta)
+        });
+        cleaned.extend(missing);
+        changed = true;
+    }
+    if changed {
+        save_pin_order(&cleaned);
     }
 }
 
@@ -184,6 +216,7 @@ fn write_file(id: &str, meta: &NoteMeta, body: &str) -> Result<(), String> {
 #[tauri::command]
 fn list_notes() -> Vec<NoteListItem> {
     ensure_dir();
+    reconcile_pins();
     let pins = load_pins();
     let mut items: Vec<NoteListItem> = fs::read_dir(notes_dir())
         .ok()
@@ -194,7 +227,21 @@ fn list_notes() -> Vec<NoteListItem> {
         .filter_map(|e| {
             let path = e.path();
             let id = path.file_stem()?.to_str()?.to_string();
-            let raw = fs::read_to_string(&path).ok()?;
+            let raw = match fs::read_to_string(&path) {
+                Ok(r) => r,
+                Err(_) => {
+                    // 单个文件读取失败（编码异常/损坏）：保留占位项，不静默消失
+                    return Some(NoteListItem {
+                        id,
+                        title: String::new(),
+                        modified: String::new(),
+                        preview: String::new(),
+                        pinned: false,
+                        pin_time: String::new(),
+                        error: true,
+                    });
+                }
+            };
             let (meta, body) = parse_file(&raw);
             let title = if !meta.title.is_empty() {
                 meta.title.clone()
@@ -226,6 +273,7 @@ fn list_notes() -> Vec<NoteListItem> {
                 preview,
                 pinned: is_pinned,
                 pin_time,
+                error: false,
             })
         })
         .collect();
