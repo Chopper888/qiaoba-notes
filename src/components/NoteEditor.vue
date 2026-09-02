@@ -12,6 +12,7 @@ import TurndownService from 'turndown'
 import { marked } from 'marked'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { ContinuousOrderedList } from '../editor/continuousOrderedList.js'
+import { TabIndentList } from '../editor/tabIndentList.js'
 
 const props = defineProps({ initialContent: String })
 const emit = defineEmits(['change'])
@@ -30,20 +31,6 @@ const StatusMark = Mark.create({
   renderHTML({ mark, HTMLAttributes }) {
     const type = mark.attrs.type
     return ['span', mergeAttributes({ 'data-status': type, class: `status-mark status-${type}` }), 0]
-  },
-})
-
-// ── Tab / Shift+Tab 列表缩进（降级/升级） ────────────────────────────────────
-// ListItem 内置了 Tab/Shift+Tab，此扩展以更高优先级显式注册，确保行为明确且不依赖版本
-// 结构变化后 ContinuousOrderedList 的 appendTransaction 自动触发全量重算编号
-const TabIndentList = Extension.create({
-  name: 'tabIndentList',
-  priority: 200,
-  addKeyboardShortcuts() {
-    return {
-      Tab:       () => this.editor.commands.sinkListItem('listItem'),
-      'Shift-Tab': () => this.editor.commands.liftListItem('listItem'),
-    }
   },
 })
 
