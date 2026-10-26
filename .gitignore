@@ -40,3 +40,4 @@ Thumbs.db
 .claude/
 .desensitize-baseline.json
 *.key
+CLAUDE.md
