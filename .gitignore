@@ -35,3 +35,8 @@ Thumbs.db
 # Environment
 .env
 .env.local
+.env.*
+!.env.example
+.claude/
+.desensitize-baseline.json
+*.key

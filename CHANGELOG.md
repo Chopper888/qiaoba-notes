@@ -26,7 +26,7 @@
 - 更新源对接 GitHub Releases（`latest.json` 作为元数据文件），无需额外服务器
 - 影响文件：`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`src-tauri/capabilities/default.json`、`src-tauri/src/lib.rs`、`src/components/UpdateDialog.vue`（新增）、`src/App.vue`
 
-> **发版注意**：每次发布新版本到 GitHub Releases 时，需同步上传 `latest.json`（含版本号、下载链接、.sig 签名内容）。打包时设置环境变量 `TAURI_SIGNING_PRIVATE_KEY_PATH=C:\Users\a\.tauri\qiaoba-notes.key`，签名文件会自动生成在 `target/release/bundle/nsis/` 目录下。
+> **发版注意**：每次发布新版本到 GitHub Releases 时，需同步上传 `latest.json`（含版本号、下载链接、.sig 签名内容）。打包时设置环境变量 `TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\qiaoba-notes.key`，签名文件会自动生成在 `target/release/bundle/nsis/` 目录下。
 
 ---
 
